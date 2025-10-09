@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.processing.data_manager import split_data
 
-st.title("1. Data Loader")
+st.title("🖥️ Data Loader")
 
 # Check if a problem type has been selected
 if "problem_type" not in st.session_state or st.session_state.problem_type is None:

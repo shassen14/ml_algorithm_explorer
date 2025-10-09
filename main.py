@@ -9,9 +9,9 @@ pg = st.navigation(
     {
         "Welcome": [st.Page("pages/0_Welcome.py", title="Introduction", icon="🏠")],
         "Analysis Tools": [
-            st.Page("pages/1_Data_Loader.py", title="Data Loader"),
-            # st.Page("pages/2_Model_Explorer.py", title="Model Explorer", icon=""),
-            # st.Page("pages/3_EDA.py", title="EDA", icon=""),
+            st.Page("pages/1_Data_Loader.py", title="Data Loader", icon="🖥️"),
+            st.Page("pages/2_EDA.py", title="EDA", icon=""),
+            # st.Page("pages/3_Model_Explorer.py", title="Model Explorer"),
         ],
     }
 )
