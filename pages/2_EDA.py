@@ -1,6 +1,11 @@
 # pages/2_EDA.py
 import streamlit as st
-from ui.components import eda_univariate, eda_bivariate, eda_multivariate
+from ui.components import (
+    eda_summary_report,
+    eda_univariate,
+    eda_bivariate,
+    eda_multivariate,
+)
 
 st.set_page_config(layout="wide")  # Ensure wide layout for better plot viewing
 
@@ -21,12 +26,18 @@ if "full_df" not in st.session_state:
     st.warning("Please load your data on the 💾 Data Loader page to begin.")
 else:
     df = st.session_state["full_df"]
+    target_column = st.session_state.get("target_column", None)
+    problem_type = st.session_state.get("problem_type", None)
+
+    st.markdown("---")
+    eda_summary_report.render(df, target_column, problem_type)
+    st.markdown("---")
 
     with st.expander("Univariate Analysis: Inspecting Single Features"):
         eda_univariate.render(df)
     with st.expander(
         "Bivariate Analysis: Exploring Relationships Between Two Features"
     ):
-        eda_bivariate.render(df)
+        eda_bivariate.render(df, target_column)
     with st.expander("Multivariate Analysis: Getting the Big Picture"):
         eda_multivariate.render(df)

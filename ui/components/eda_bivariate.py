@@ -7,7 +7,7 @@ import numpy as np
 SAMPLING_THRESHOLD = 2000  # Set a reasonable limit for scatter plots
 
 
-def render(df):
+def render(df, target_column=None):
     """Renders the bivariate analysis section of the EDA page."""
 
     st.markdown("### Explore Relationships Between Two Features")
@@ -20,6 +20,12 @@ def render(df):
         "Select Plot Type:",
         ["Scatter Plot", "Box Plot", "Violin Plot", "Count Plot (with Hue)"],
     )
+
+    # Find the index of the target column if it exists in a list of columns
+    def get_default_index(cols_list, target):
+        if target and target in cols_list:
+            return cols_list.index(target)
+        return 0
 
     # Dynamic plotting for selection
     if plot_type == "Scatter Plot":
@@ -37,8 +43,12 @@ def render(df):
                 key="bivar_scatter_y",
             )
         with col3:
+            default_hue_index = get_default_index(categorical_cols, target_column)
             hue = st.selectbox(
-                "Hue (Color by):", [None] + categorical_cols, key="bivar_scatter_hue"
+                "Hue (Color by):",
+                [None] + categorical_cols,
+                index=default_hue_index + 1,
+                key="bivar_scatter_hue",
             )
 
     elif plot_type in ["Box Plot", "Violin Plot"]:
@@ -66,10 +76,15 @@ def render(df):
                 "X-axis (Primary Category):", categorical_cols, key="bivar_count_x"
             )
         with col2:
+            # Smart default for hue
+            default_hue_index = get_default_index(categorical_cols, target_column)
+            # Ensure the hue default is different from the x-axis if possible
+            if x_axis == target_column and len(categorical_cols) > 1:
+                default_hue_index = (default_hue_index + 1) % len(categorical_cols)
             hue = st.selectbox(
                 "Hue (Secondary Category):",
                 categorical_cols,
-                index=min(1, len(categorical_cols) - 1),
+                index=default_hue_index,
                 key="bivar_count_hue",
             )
         y_axis = None

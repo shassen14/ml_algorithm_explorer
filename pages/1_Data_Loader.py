@@ -28,6 +28,9 @@ else:
             test_size = st.slider("Select the test set size", 0.1, 0.5, 0.2)
 
             if st.button("Process and Split Data"):
+                # Store the selected target column in the session state
+                st.session_state["target_column"] = target_column
+
                 with st.spinner("Processing..."):
                     # Backend function with the DataFrame
                     X_train, X_test, y_train, y_test = split_data(
