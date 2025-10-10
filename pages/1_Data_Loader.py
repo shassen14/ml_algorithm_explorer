@@ -18,7 +18,44 @@ else:
         try:
             # Load the DataFrame once, right here in the UI
             df = pd.read_csv(uploaded_file)
-            st.write("Data Preview:")
+
+            st.subheader("Automated Data Cleaning")
+
+            # 1. Handle customerID (or any unique identifier)
+            # Drop unique identifier columns as they cause data leakage.
+            # We identify them as object columns where every value is unique.
+            id_cols = [
+                col
+                for col in df.select_dtypes(include="object").columns
+                if df[col].nunique() == len(df)
+            ]
+            if id_cols:
+                df = df.drop(columns=id_cols)
+                st.success(
+                    f"Removed identifier column(s) to prevent data leakage: `{'`, `'.join(id_cols)}`"
+                )
+
+            # 2. Handle TotalCharges (or other numeric-as-object columns)
+            # Convert columns that look numeric but are stored as objects.
+            for col in df.select_dtypes(include="object").columns:
+                if col != st.session_state.get(
+                    "target_column"
+                ):  # Don't convert the target
+                    try:
+                        # Attempt to convert to numeric, coercing errors to NaN
+                        converted_col = pd.to_numeric(df[col], errors="coerce")
+                        # If conversion is successful for a good portion of the data, apply it
+                        if (
+                            converted_col.notna().sum() / len(df) > 0.8
+                        ):  # Heuristic: if >80% are numeric
+                            df[col] = converted_col
+                            st.success(
+                                f"Successfully converted column `{col}` to a numeric type."
+                            )
+                    except Exception:
+                        continue  # Ignore columns that can't be converted
+
+            st.write("Data Preview (after cleaning):")
             st.dataframe(df.head())
 
             # Store the full dataframe in session state for EDA page
