@@ -129,7 +129,6 @@ def render_interactive_demo(df, target_column):
         with col2:
             st.metric(label="Optimal Log Loss", value=f"{optimal_log_loss:.4f}")
 
-        # --- NEW: Prediction Zones ---
         # Shade the background based on the decision boundary
         ax.axvspan(
             x_min,
