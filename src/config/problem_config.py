@@ -5,7 +5,6 @@
 # ==============================================================================
 
 # Import the pipeline functions that orchestrate the ML process
-# Note: You will need to create the regression_pipeline.py file.
 from src.pipelines import classification_pipeline, regression_pipeline
 
 # Import the actual model classes from scikit-learn and xgboost
