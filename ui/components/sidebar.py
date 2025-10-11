@@ -1,8 +1,10 @@
 # ui/components/sidebar.py
 import streamlit as st
 
+from src.schemas import ModelConfig
 
-def render_sidebar(problem_config):
+
+def render_sidebar(problem_config: dict) -> ModelConfig:
     """
     Renders the model selection and hyperparameter tuning sidebar.
     This version is robust against models with no defined hyperparameters.
@@ -67,11 +69,8 @@ def render_sidebar(problem_config):
                         help=settings.get("help"),
                     )
 
-        # Assemble the final model config object for the pipeline
-        model_config_for_pipeline = {
-            "model_name": selected_model_name,
-            "model_class": problem_config["models"][selected_model_name],
-            "hyperparameters": user_hyperparameters,
-        }
-
-        return model_config_for_pipeline
+        return ModelConfig(
+            model_name=selected_model_name,
+            model_class=problem_config["models"][selected_model_name],
+            hyperparameters=user_hyperparameters,
+        )

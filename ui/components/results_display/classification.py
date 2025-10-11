@@ -1,13 +1,14 @@
 # ui/components/results_display/classification.py
 import streamlit as st
 import pandas as pd
+from src.schemas import ClassificationPipelineResult, ExplainerData
 from ui.components import (
     linear_model_explainer,
     pros_cons_display,
 )
 
 
-def render(run_results, model_name, full_df, target_column):
+def render(result: ClassificationPipelineResult, explainer_data: ExplainerData):
     """
     Renders the full results dashboard specifically for CLASSIFICATION problems.
     """
@@ -24,7 +25,7 @@ def render(run_results, model_name, full_df, target_column):
     with tab1:
         st.subheader("Model Performance Summary")
 
-        metrics = run_results.get("metrics", {})
+        metrics = result.metrics
         if not metrics:
             st.warning("No metrics were generated for this run.")
             return  # Exit early if there's nothing to show
@@ -34,14 +35,14 @@ def render(run_results, model_name, full_df, target_column):
 
         col1, col2 = st.columns(2)
         with col1:
-            if "confusion_matrix_fig" in run_results:
+            if result.confusion_matrix_fig:
                 st.write("**Confusion Matrix:**")
-                st.pyplot(run_results["confusion_matrix_fig"])
+                st.pyplot(result.confusion_matrix_fig)
         with col2:
-            if "roc_curve_fig" in run_results:
-                st.markdown("---")  # Add a separator
+            if result.roc_curve_fig:
+                st.markdown("---")
                 st.write("**Receiver Operating Characteristic (ROC) Curve:**")
-                st.pyplot(run_results["roc_curve_fig"])
+                st.pyplot(result.roc_curve_fig)
 
         # Detailed, Collapsible Information
         st.markdown("---")
@@ -65,9 +66,9 @@ def render(run_results, model_name, full_df, target_column):
             """
             )
 
-        if run_results.get("classification_report"):
+        if result.classification_report:
             st.write("**Detailed Classification Report:**")
-            st.code(run_results["classification_report"], language=None)
+            st.code(result.classification_report, language=None)
 
     # ==============================================================================
     # TAB 2: DIAGNOSIS ("WHY") - Understanding the specific model run
@@ -77,11 +78,11 @@ def render(run_results, model_name, full_df, target_column):
         st.subheader("Diagnosing the Trained Model")
 
         st.markdown("#### **Geometric Analysis**")
-        if run_results.get("decision_boundary_fig"):
+        if result.decision_boundary_fig:
             st.info(
                 "This plot is the ultimate summary of the model. It visualizes how the model has partitioned the data space, projected into 2D using PCA."
             )
-            st.pyplot(run_results["decision_boundary_fig"])
+            st.pyplot(result.decision_boundary_fig)
         else:
             st.info(
                 "A decision boundary plot could not be generated for this model or data."
@@ -98,14 +99,14 @@ def render(run_results, model_name, full_df, target_column):
         col1, col2 = st.columns(2)
         with col1:
             # For Tree-Based models
-            if run_results.get("feature_importance_fig"):
+            if result.feature_importance_fig:
                 st.write("**Feature Importance (MDI):**")
-                st.pyplot(run_results["feature_importance_fig"])
+                st.pyplot(result.feature_importance_fig)
 
             # For Linear Models
-            if run_results.get("coefficient_plot_fig"):
+            if result.coefficient_plot_fig:
                 st.write("**Coefficient Inspector:**")
-                st.pyplot(run_results["coefficient_plot_fig"])
+                st.pyplot(result.coefficient_plot_fig)
         with col2:
             # Placeholder for future, more advanced plots like Permutation Importance or SHAP
             st.write("")  # Empty column for now, can be filled later
@@ -119,8 +120,8 @@ def render(run_results, model_name, full_df, target_column):
         )
 
         # --- Error Analysis Tables ---
-        fp_df = run_results.get("false_positives_df")
-        fn_df = run_results.get("false_negatives_df")
+        fp_df = result.false_positives_df
+        fn_df = result.false_negatives_df
 
         if fp_df is not None and not fp_df.empty:
             with st.expander("Show Top 5 Worst False Positives"):
@@ -141,19 +142,24 @@ def render(run_results, model_name, full_df, target_column):
     # This tab is now clean and focused only on teaching the algorithm.
     # ==============================================================================
     with tab3:
-        st.subheader(f"How a {model_name} Works")
-        if model_name == "Logistic Regression":
-            if full_df is not None and target_column is not None:
-                linear_model_explainer.render(full_df, target_column)
+        st.subheader(f"How a {result.model_name} Works")
+        if result.model_name == "Logistic Regression":
+            if (
+                explainer_data.full_df is not None
+                and explainer_data.target_column is not None
+            ):
+                linear_model_explainer.render(
+                    explainer_data.full_df, explainer_data.target_column
+                )
 
-        elif model_name == "K-Nearest Neighbors":
+        elif result.model_name == "K-Nearest Neighbors":
             st.info(
                 "(Placeholder) The interactive K-NN Neighbor Inspector will be displayed here."
             )
-        elif model_name in ["Random Forest", "XGBoost"]:
+        elif result.model_name in ["Random Forest", "XGBoost"]:
             st.info(
                 "(Placeholder) The Decision Tree visualizer and from-scratch code will be displayed here."
             )
 
         # General pros and cons
-        pros_cons_display.render(model_name)
+        pros_cons_display.render(result.model_name)

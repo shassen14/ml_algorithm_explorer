@@ -1,4 +1,6 @@
 # src/pipelines/classification_pipeline.py
+from typing import Optional
+import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
@@ -14,16 +16,23 @@ import logging
 
 from src.analysis import model_analyzer
 from src.evaluation import plotting
+from src.schemas import ClassificationPipelineResult, ModelConfig
 
 logger = logging.getLogger(__name__)
 
 
-def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
+def run_classification_pipeline(
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    y_test: pd.Series,
+    model_config: ModelConfig,
+) -> Optional[ClassificationPipelineResult]:
     try:
         # The config now directly provides the class and its string name
-        model_class = model_config["model_class"]
-        model_name = model_config["model_name"]
-        hyperparameters = model_config["hyperparameters"]
+        model_class = model_config.model_class
+        model_name = model_config.model_name
+        hyperparameters = model_config.hyperparameters
 
         logger.info(f"Starting classification pipeline for model: {model_name}")
         logger.info(f"Hyperparameters: {hyperparameters}")
@@ -31,9 +40,20 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
         if y_train.dtype == "object" or y_train.dtype.name == "category":
             logger.info("Target variable is categorical. Applying LabelEncoder.")
             le = LabelEncoder()
+
             # Fit on the training data and transform both train and test data
-            y_train_encoded = le.fit_transform(y_train)
-            y_test_encoded = le.transform(y_test)
+            # LabelEncoder returns NumPy arrays
+            y_train_encoded_np = le.fit_transform(y_train)
+            y_test_encoded_np = le.transform(y_test)
+
+            # Convert NumPy arrays back to Pandas Series
+            # We preserve the original index, which is good practice.
+            y_train_encoded = pd.Series(
+                y_train_encoded_np, index=y_train.index, name=y_train.name
+            )
+            y_test_encoded = pd.Series(
+                y_test_encoded_np, index=y_test.index, name=y_test.name
+            )
 
             # Keep track of the original labels for plotting and metrics
             class_names = le.classes_
@@ -92,7 +112,7 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
         y_pred_proba = main_pipeline.predict_proba(X_test)
 
         # Initialize results dictionary
-        results = {}
+        metrics = {}
 
         # Calculate metrics
         if len(class_names) == 2:
@@ -101,7 +121,7 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
                 f"Binary classification detected. Using '{pos_label}' as the positive label."
             )
 
-            results["metrics"] = {
+            metrics = {
                 "Accuracy": accuracy_score(y_test_encoded, y_pred_encoded),
                 "Precision": precision_score(
                     y_test_encoded, y_pred_encoded, pos_label=pos_label, zero_division=0
@@ -117,7 +137,7 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
             logger.info(
                 "Multi-class classification detected. Calculating weighted-average metrics."
             )
-            results["metrics"] = {
+            metrics = {
                 "Accuracy": accuracy_score(y_test_encoded, y_pred_encoded),
                 "F1-Score (Weighted)": f1_score(
                     y_test_encoded, y_pred_encoded, average="weighted", zero_division=0
@@ -131,23 +151,22 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
             target_names=[str(c) for c in class_names],
             zero_division=0,
         )
-        results["classification_report"] = report_str
 
         # Plotting
-        results["confusion_matrix_fig"] = plotting.plot_confusion_matrix(
+        confusion_matrix_fig = plotting.plot_confusion_matrix(
             y_test_encoded, y_pred_encoded, class_names=class_names
         )
-        results["roc_curve_fig"] = plotting.plot_roc_curve(
+        roc_curve_fig = plotting.plot_roc_curve(
             y_test_encoded, y_pred_proba, class_names
         )
-        results["feature_importance_fig"] = plotting.plot_feature_importance(
+        feature_importance_fig = plotting.plot_feature_importance(
             main_pipeline, main_pipeline.named_steps["preprocessor"]
         )
-        results["decision_boundary_fig"] = plotting.plot_decision_boundary(
+        decision_boundary_fig = plotting.plot_decision_boundary(
             X_train, y_train_encoded, class_names, main_pipeline
         )
 
-        results["coefficient_plot_fig"] = plotting.plot_linear_coefficients(
+        coefficient_plot_fig = plotting.plot_linear_coefficients(
             main_pipeline, class_names
         )
 
@@ -155,16 +174,28 @@ def run_classification_pipeline(X_train, X_test, y_train, y_test, model_config):
         fp_df, fn_df = model_analyzer.get_error_analysis(
             X_test, y_test, y_pred_encoded, y_pred_proba, class_names
         )
-        results["false_positives_df"] = fp_df
-        results["false_negatives_df"] = fn_df
 
-        logger.info(f"Calculated metrics: {results['metrics']}")
+        logger.info(f"Calculated metrics: {metrics}")
 
-        return results, main_pipeline
+        return ClassificationPipelineResult(
+            pipeline=main_pipeline,
+            model_name=model_name,
+            feature_importance_fig=feature_importance_fig,
+            metrics=metrics,
+            class_names=class_names,
+            y_train_encoded=y_train_encoded,
+            confusion_matrix_fig=confusion_matrix_fig,
+            roc_curve_fig=roc_curve_fig,
+            classification_report=report_str,
+            decision_boundary_fig=decision_boundary_fig,
+            coefficient_plot_fig=coefficient_plot_fig,
+            false_positives_df=fp_df,
+            false_negatives_df=fn_df,
+        )
 
     except Exception as e:
         logger.error(
-            f"An error occurred in the classification pipeline for model {model_config.get('model_name', 'Unknown')}: {e}",
+            f"An error occurred in the classification pipeline for model {model_config.model_name}: {e}",
             exc_info=True,
         )
         return None, None
