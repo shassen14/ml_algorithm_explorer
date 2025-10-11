@@ -1,7 +1,7 @@
 # pages/3_Model_Explorer.py
 import streamlit as st
 from src.config.problem_config import PROBLEM_CONFIG
-from src.schemas import ExplainerData
+from src.schemas import DisplayContext
 from ui.components import sidebar, results
 
 st.title("🔬 Model Explorer")
@@ -35,27 +35,35 @@ else:
         # Store the entire result object in session state
         if pipeline_result:
             st.success("Model training complete!")
+
+            # Store the result object AND the name of the model that generated it
             st.session_state["last_run_result"] = pipeline_result
+            st.session_state["last_run_model_name"] = model_config.model_name
         else:
             st.error("Model training failed. Check the terminal for logs.")
             if "last_run_result" in st.session_state:
                 del st.session_state["last_run_result"]
+            if "last_run_model_name" in st.session_state:
+                del st.session_state["last_run_model_name"]
 
     # --- 5. Call the Results Dispatcher ---
     if "last_run_result" in st.session_state:
-        # Retrieve the result object from session state
-        last_run_result_object = st.session_state["last_run_result"]
 
-        # We gather the necessary raw/intermediate data from session state and
-        # package it into our formal ExplainerData schema.
-        try:
-            explainer_data = ExplainerData(
-                full_df=st.session_state.get("full_df"),
-                target_column=st.session_state.get("target_column"),
-                processed_data=st.session_state.get("processed_data"),
-            )
-        except Exception as e:
-            st.error(f"Failed to create explainer data object: {e}")
-            st.stop()
+        if st.session_state.get("last_run_model_name") == model_config.model_name:
 
-        results.display_results(last_run_result_object, explainer_data)
+            # We gather the necessary raw/intermediate data from session state and
+            # package it into our formal DisplayContext schema.
+            try:
+                display_context = DisplayContext(
+                    result=st.session_state["last_run_result"],
+                    full_df=st.session_state.get("full_df"),
+                    target_column=st.session_state.get("target_column"),
+                    processed_data=st.session_state.get("processed_data"),
+                )
+                results.display_results(display_context)
+
+            except Exception as e:
+                st.error(f"Failed to create display context: {e}")
+                del st.session_state["last_run_result"]
+                del st.session_state["last_run_model_name"]
+                st.rerun()

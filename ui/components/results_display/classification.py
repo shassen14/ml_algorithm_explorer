@@ -1,17 +1,20 @@
 # ui/components/results_display/classification.py
 import streamlit as st
 import pandas as pd
-from src.schemas import ClassificationPipelineResult, ExplainerData
+from src.schemas import DisplayContext
 from ui.components import (
+    knn_explainer,
     linear_model_explainer,
     pros_cons_display,
 )
 
 
-def render(result: ClassificationPipelineResult, explainer_data: ExplainerData):
+def render(context: DisplayContext):
     """
     Renders the full results dashboard specifically for CLASSIFICATION problems.
     """
+    result = context.result
+
     tab_titles = [
         "📈 Performance (What)",
         "🔍 Diagnosis (Why)",
@@ -144,18 +147,13 @@ def render(result: ClassificationPipelineResult, explainer_data: ExplainerData):
     with tab3:
         st.subheader(f"How a {result.model_name} Works")
         if result.model_name == "Logistic Regression":
-            if (
-                explainer_data.full_df is not None
-                and explainer_data.target_column is not None
-            ):
-                linear_model_explainer.render(
-                    explainer_data.full_df, explainer_data.target_column
-                )
+            if context.full_df is not None and context.target_column is not None:
+                linear_model_explainer.render(context.full_df, context.target_column)
 
         elif result.model_name == "K-Nearest Neighbors":
-            st.info(
-                "(Placeholder) The interactive K-NN Neighbor Inspector will be displayed here."
-            )
+            if context.processed_data is not None:
+                knn_explainer.render(context)
+
         elif result.model_name in ["Random Forest", "XGBoost"]:
             st.info(
                 "(Placeholder) The Decision Tree visualizer and from-scratch code will be displayed here."

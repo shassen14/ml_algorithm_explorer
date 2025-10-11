@@ -32,21 +32,6 @@ class ModelConfig(BaseModel):
     hyperparameters: Dict[str, Any]
 
 
-class ExplainerData(BaseModel):
-    """
-    Data contract for the raw and intermediate data needed by the
-    interactive algorithm explainer components. This data is from BEFORE
-    the main pipeline is run.
-    """
-
-    full_df: Optional[pd.DataFrame] = None
-    target_column: Optional[str] = None
-    processed_data: Optional[Dict[str, Any]] = None  # Contains X_train, y_train etc.
-
-    class Config(ArbitraryTypesConfig):
-        pass
-
-
 # Base Class containing fields that are common to every pipeline result.
 class BasePipelineResult(BaseModel):
     pipeline: Any  # The trained scikit-learn pipeline object
@@ -85,3 +70,21 @@ class ClusteringPipelineResult(BasePipelineResult):
     cluster_labels: np.ndarray
 
     cluster_plot_fig: Optional[Figure] = None
+
+
+class DisplayContext(BaseModel):
+    """
+    A single, unified object that contains ALL data needed to render any
+    results page or component. This is the 'Single Source of Truth'.
+    """
+
+    # The core result from the pipeline run
+    result: BasePipelineResult
+
+    # The raw/intermediate data needed for explainers
+    full_df: Optional[pd.DataFrame] = None
+    processed_data: Optional[Dict[str, Any]] = None
+    target_column: Optional[str] = None
+
+    class Config(ArbitraryTypesConfig):
+        pass
