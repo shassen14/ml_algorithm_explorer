@@ -15,7 +15,8 @@ from sklearn.metrics import (
 import logging
 
 from src.analysis import model_analyzer
-from src.evaluation import plotting
+from src.evaluation import common_plots
+from src.evaluation.specific_plots import classification as classification_plots
 from src.schemas import ClassificationPipelineResult, ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -153,21 +154,20 @@ def run_classification_pipeline(
         )
 
         # Plotting
-        confusion_matrix_fig = plotting.plot_confusion_matrix(
-            y_test_encoded, y_pred_encoded, class_names=class_names
+        coefficient_plot_fig = common_plots.plot_linear_coefficients(
+            main_pipeline, class_names
         )
-        roc_curve_fig = plotting.plot_roc_curve(
-            y_test_encoded, y_pred_proba, class_names
-        )
-        feature_importance_fig = plotting.plot_feature_importance(
+        feature_importance_fig = common_plots.plot_feature_importance(
             main_pipeline, main_pipeline.named_steps["preprocessor"]
         )
-        decision_boundary_fig = plotting.plot_decision_boundary(
-            X_train, y_train_encoded, class_names, main_pipeline
+        confusion_matrix_fig = classification_plots.plot_confusion_matrix(
+            y_test_encoded, y_pred_encoded, class_names=class_names
         )
-
-        coefficient_plot_fig = plotting.plot_linear_coefficients(
-            main_pipeline, class_names
+        roc_curve_fig = classification_plots.plot_roc_curve(
+            y_test_encoded, y_pred_proba, class_names
+        )
+        decision_boundary_fig = classification_plots.plot_decision_boundary(
+            X_train, y_train_encoded, class_names, main_pipeline
         )
 
         # Diagnostics

@@ -1,7 +1,7 @@
 # ui/components/knn_explainer.py
 import streamlit as st
 from src.algorithms.knn import SimpleKNNClassifier
-from src.evaluation.plotting import plot_knn_neighbors
+from src.evaluation.specific_plots.classification import plot_knn_neighbors
 import inspect
 
 from src.schemas import DisplayContext
