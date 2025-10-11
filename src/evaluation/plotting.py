@@ -1,4 +1,5 @@
 # src/evaluation/plotting.py
+from collections import Counter
 import logging
 import numpy as np
 import matplotlib.patches as mpatches
@@ -6,8 +7,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from sklearn.calibration import label_binarize
+from sklearn.discriminant_analysis import StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
@@ -273,4 +277,127 @@ def plot_linear_coefficients(pipeline, class_names):
 
     except Exception as e:
         logger.error(f"Could not generate coefficient plot: {e}", exc_info=True)
+        return None
+
+
+def plot_knn_neighbors(X_train, y_train_encoded, X_test, point_index, k, class_names):
+    """
+    Generates a 2D PCA plot to visualize the k-NN decision for a single test point.
+    """
+    try:
+        if point_index >= len(X_test):
+            logger.warning("Selected point_index is out of bounds for X_test.")
+            return None
+
+        # Combine data for consistent PCA transformation
+        X_combined = pd.concat([X_train, X_test], ignore_index=True)
+
+        # Create a simple preprocessor for visualization purposes
+        # This ensures PCA works even if data has missing values or isn't scaled
+        vis_preprocessor = Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),  # Impute numerical
+                # Note: We are ignoring categorical for this PCA plot for simplicity
+                ("scaler", StandardScaler()),
+            ]
+        )
+
+        # Select only numerical columns for this visualization
+        numerical_cols_train = X_train.select_dtypes(include=np.number).columns
+        numerical_cols_combined = X_combined.select_dtypes(include=np.number).columns
+
+        X_processed = vis_preprocessor.fit_transform(
+            X_combined[numerical_cols_combined]
+        )
+
+        pca = PCA(n_components=2, random_state=42)
+        X_pca = pca.fit_transform(X_processed)
+
+        X_train_pca = X_pca[: len(X_train)]
+        X_test_pca = X_pca[len(X_train) :]
+
+        test_point_pca = X_test_pca[point_index]
+
+        nn = NearestNeighbors(n_neighbors=k)
+        nn.fit(X_train_pca)
+        _, indices = nn.kneighbors([test_point_pca])
+
+        neighbor_indices = indices[0]
+        neighbor_labels = y_train_encoded.iloc[neighbor_indices].values
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        sns.scatterplot(
+            x=X_train_pca[:, 0],
+            y=X_train_pca[:, 1],
+            hue=y_train_encoded,
+            palette="viridis",
+            alpha=0.3,
+            ax=ax,
+            legend="full",
+        )
+
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles, class_names, title="Classes")
+
+        ax.scatter(
+            X_train_pca[neighbor_indices, 0],
+            X_train_pca[neighbor_indices, 1],
+            s=150,
+            facecolors="none",
+            edgecolors="red",
+            linewidth=2,
+            label=f"{k} Nearest Neighbors",
+        )
+
+        ax.scatter(
+            test_point_pca[0],
+            test_point_pca[1],
+            marker="*",
+            s=300,
+            c="black",
+            edgecolors="white",
+            linewidth=1,
+            label=f"Test Point #{point_index}",
+        )
+
+        for neighbor_idx in neighbor_indices:
+            con = mpatches.ConnectionPatch(
+                xyA=test_point_pca,
+                xyB=X_train_pca[neighbor_idx],
+                coordsA="data",
+                coordsB="data",
+                axesA=ax,
+                axesB=ax,
+                color="red",
+                linestyle="--",
+                alpha=0.6,
+            )
+            ax.add_artist(con)
+
+        vote_counts = Counter(neighbor_labels)
+        prediction_encoded = vote_counts.most_common(1)[0][0]
+
+        vote_text = f"Neighbor Votes (k={k}):\n"
+        for label_encoded, count in vote_counts.items():
+            vote_text += f"- {class_names[label_encoded]}: {count}\n"
+        vote_text += f"\nPrediction: {class_names[prediction_encoded]}"
+
+        ax.text(
+            0.05,
+            0.95,
+            vote_text,
+            transform=ax.transAxes,
+            fontsize=12,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.5", fc="wheat", alpha=0.7),
+        )
+
+        ax.set_title(f"k-NN Neighbor Inspector for Test Point #{point_index}")
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+
+        return fig
+    except Exception as e:
+        logger.error(f"Could not generate k-NN neighbor plot: {e}", exc_info=True)
         return None
