@@ -4,6 +4,10 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+# If a numerical column has fewer than this many unique values,
+# we'll treat it as a categorical feature for plotting.
+CATEGORICAL_THRESHOLD = 10
+
 
 def render(df):
     """Renders the univariate analysis section of the EDA page."""
@@ -18,17 +22,35 @@ def render(df):
     if selected_column:
         st.markdown("---")
 
+        column_data = df[selected_column]
+        is_numeric = pd.api.types.is_numeric_dtype(column_data)
+        unique_value_count = column_data.nunique()
+
+        # We'll treat a feature as categorical for plotting if it's non-numeric OR
+        # if it's numeric but has a low number of unique values (low cardinality).
+        is_categorical_for_plotting = not is_numeric or (
+            is_numeric and unique_value_count < CATEGORICAL_THRESHOLD
+        )
+
         # Dynamically render
-        if pd.api.types.is_numeric_dtype(df[selected_column]):
-            # For numerical columns, use a tabbed interface
+        if is_categorical_for_plotting:
+            # For features treated as categorical (like 'SeniorCitizen'), show the simple bar chart.
+            st.info(
+                f"Treating `{selected_column}` as a **categorical feature** for visualization."
+            )
+            render_categorical_analysis(df, selected_column)
+
+        else:
+            # For true continuous numerical features, show the advanced tabbed analysis.
+            st.info(
+                f"Treating `{selected_column}` as a **continuous numerical feature**."
+            )
+
             tab1, tab2 = st.tabs(["📊 Distribution Analysis", "⚠️ Outlier Detection"])
             with tab1:
                 render_numerical_distribution(df, selected_column)
             with tab2:
                 render_outlier_analysis(df, selected_column)
-        else:
-            # For categorical columns, display directly
-            render_categorical_analysis(df, selected_column)
 
 
 def render_numerical_distribution(df, column_name):
