@@ -15,19 +15,24 @@ def render(df, target_column):
     st.markdown("### The Goal: Find the Best Fit to Minimize Error")
     st.info(
         """
-    Machine learning is an optimization game. The goal of "fitting" is to find the parameters for the **S-shaped 'sigmoid' curve** that make the model's predictions as close to the real data as possible. We measure this "closeness" with a score called **Log Loss**.
+    Machine learning is an optimization game. The goal of "fitting" is to find the 
+    parameters for the **S-shaped 'sigmoid' curve** that make the model's predictions 
+    as close to the real data as possible. We measure this "closeness" with a score 
+    called **Log Loss**.
 
-    **Your challenge:** Can you adjust the sliders to find the curve with the **lowest possible Log Loss score**?
+    **Your challenge:** Can you adjust the sliders to find the curve with the **lowest 
+    possible Log Loss score**?
     """
     )
     st.markdown("---")
 
     # --- LEVEL 2: The Visual & Code-Level Intuition ---
+    tab1, tab2 = st.tabs(["Interactive Demo", "The Code Behind It"])
 
-    # New Top-to-Bottom Layout
-    render_interactive_demo(df, target_column)
-    st.markdown("---")
-    render_code_explanation()
+    with tab1:
+        render_interactive_demo(df, target_column)
+    with tab2:
+        render_code_explanation()
 
     st.markdown("---")
     with st.expander("Future Enhancements: Visualizing in Higher Dimensions"):
@@ -202,26 +207,31 @@ def render_interactive_demo(df, target_column):
 
 
 def render_code_explanation():
-    st.subheader("The Code Behind It")
+    st.subheader("Summary")
+    st.markdown(
+        """
+        > "At its core, Logistic Regression is a **classification algorithm** that models the 
+        probability of a discrete outcome, typically binary like 'Yes' or 'No'.
+        >
+        > It starts by taking a **linear combination of the input features** 
+        (just like Linear Regression), but then passes that output through a **Sigmoid function**. 
+        This is the key step: the Sigmoid function squashes any real number into a value between 
+        **0 and 1**, which we interpret as a probability.
+        >
+        > The model is 'trained' by finding the optimal coefficients (weights) that **minimize a 
+        loss function**, typically **Log Loss**, using an optimization algorithm like Gradient 
+        Descent. The final classification is then made by comparing the output probability to a 
+        decision threshold, usually 0.5."
+        """
+    )
     st.info(
         "This from-scratch code uses **Gradient Descent** to 'learn' the best-fitting curve."
     )
 
-    with st.expander("Show From-Scratch Python Code"):
-        code_string = inspect.getsource(SimpleLogisticRegression)
-        st.code(code_string, language="python")
+    code_string = inspect.getsource(SimpleLogisticRegression)
+    st.code(code_string, language="python")
 
     st.markdown("---")
-    st.warning(
-        """
-    **A Note on Naming:** You'll notice our method is named `predict_probabilities`. 
-    This is for maximum clarity. 
-    
-    The industry-standard library, **Scikit-learn**, calls this same method `predict_proba`. 
-    We chose the more descriptive name to make the code's purpose immediately obvious.
-    """,
-        icon="💡",
-    )
 
     st.markdown(
         """
