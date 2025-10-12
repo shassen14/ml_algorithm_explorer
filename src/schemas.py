@@ -1,11 +1,86 @@
 # src/schemas.py
 import numpy as np
 from pydantic import BaseModel
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union
 import pandas as pd
 from matplotlib.figure import Figure
 
 
+# --- DATA TRANSFORMATION RECIPE SCHEMAS ---
+# Define the parameters for each specific transformation "verb"
+class DropColumnsParams(BaseModel):
+    columns: List[str]
+
+
+class RenameColumnParams(BaseModel):
+    source_column: str
+    new_name: str
+
+
+class ConvertTypeParams(BaseModel):
+    column: str
+    target_type: str  # e.g., 'numeric'
+
+
+class MapValuesParams(BaseModel):
+    column: str
+    new_column_name: str
+    mapping_dict: Dict[str, Any]
+    default_value: Optional[Any] = None
+
+
+class ExtractTextParams(BaseModel):
+    source_column: str
+    new_column_name: str
+    regex_pattern: str
+
+
+class MathOperationParams(BaseModel):
+    new_column_name: str
+    formula: str  # e.g., "2024 - {year}"
+
+
+class BooleanFlagParams(BaseModel):
+    source_column: str
+    keyword: str
+    new_column_name: str
+    case_sensitive: bool = False  # Add an option for case sensitivity
+
+
+class MapKeywordsParams(BaseModel):
+    source_column: str
+    new_column_name: str
+    # A dictionary mapping the keyword to search for to the new value
+    keyword_mapping: Dict[str, str]
+    default_value: str
+
+
+# This Union type lists all possible transformation parameter schemas
+TransformationParams = Union[
+    DropColumnsParams,
+    RenameColumnParams,
+    ConvertTypeParams,
+    MapValuesParams,
+    ExtractTextParams,
+    MathOperationParams,
+    BooleanFlagParams,
+    MapKeywordsParams,
+]
+
+
+# A generic model for a single step in our recipe
+class TransformationStep(BaseModel):
+    step_type: str
+    params: TransformationParams
+    is_active: bool = True
+
+
+# The full recipe is a list of these steps
+class TransformationRecipe(BaseModel):
+    steps: List[TransformationStep] = []
+
+
+# --- MODEL EXPLORER SCHEMAS ---
 # Pydantic needs this to know how to handle non-standard types like DataFrames and Figures
 class ArbitraryTypesConfig:
     arbitrary_types_allowed = True
@@ -63,6 +138,7 @@ class RegressionPipelineResult(BasePipelineResult):
     actual_vs_predicted_fig: Optional[Figure] = None
     residuals_fig: Optional[Figure] = None
     coefficient_plot_fig: Optional[Figure] = None
+    target_transform_method: str  # e.g., "Log Transform (log1p)"
 
 
 class ClusteringPipelineResult(BasePipelineResult):
