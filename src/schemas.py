@@ -107,6 +107,35 @@ class ModelConfig(BaseModel):
     hyperparameters: Dict[str, Any]
 
 
+# --- Config for Pipelines ---
+class BasePipelineConfig(BaseModel):
+    """Base schema for all pipeline configurations."""
+
+    X_train: pd.DataFrame
+    X_test: pd.DataFrame
+    y_train: pd.Series
+    y_test: pd.Series
+    model_run_config: ModelConfig
+
+    class Config(ArbitraryTypesConfig):
+        pass
+
+
+class ClassificationPipelineConfig(BasePipelineConfig):
+    """Specific configuration for a classification run."""
+
+    # No extra fields needed for now, but we could add them here
+    # e.g., resampling_strategy: str = 'none'
+    pass
+
+
+class RegressionPipelineConfig(BasePipelineConfig):
+    """Specific configuration for a regression run."""
+
+    target_transform_method: str = "None"
+
+
+# --- Pipeline Result ---
 # Base Class containing fields that are common to every pipeline result.
 class BasePipelineResult(BaseModel):
     pipeline: Any  # The trained scikit-learn pipeline object
