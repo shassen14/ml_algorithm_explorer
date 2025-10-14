@@ -17,19 +17,24 @@ import logging
 from src.analysis import model_analyzer
 from src.evaluation import common_plots
 from src.evaluation.specific_plots import classification as classification_plots
-from src.schemas import ClassificationPipelineResult, ModelConfig
+from src.schemas import (
+    ClassificationPipelineConfig,
+    ClassificationPipelineResult,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def run_classification_pipeline(
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
-    y_train: pd.Series,
-    y_test: pd.Series,
-    model_config: ModelConfig,
+    config: ClassificationPipelineConfig,
 ) -> Optional[ClassificationPipelineResult]:
     try:
+        X_train = config.X_train
+        X_test = config.X_test
+        y_train = config.y_train
+        y_test = config.y_test
+        model_config = config.model_run_config
+
         # The config now directly provides the class and its string name
         model_class = model_config.model_class
         model_name = model_config.model_name

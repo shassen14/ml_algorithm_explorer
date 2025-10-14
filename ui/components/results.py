@@ -6,7 +6,7 @@ from src.schemas import (
     DisplayContext,
     RegressionPipelineResult,
 )
-from .results_display import classification
+from .results_display import classification, regression
 
 
 def display_results(context: DisplayContext):
@@ -17,7 +17,7 @@ def display_results(context: DisplayContext):
     # Check child class for correct render
     if isinstance(context.result, ClassificationPipelineResult):
         classification.render(context)
-    # elif isinstance(run_results, RegressionPipelineResult):
-    #     regression.render(run_results, explainer_data)
+    elif isinstance(context.result, RegressionPipelineResult):
+        regression.render(context.result)
     else:
-        st.error("Unknown result type received.")
+        st.error(f"Unknown result type: {type(context.result)}")

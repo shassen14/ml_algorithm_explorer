@@ -1,7 +1,11 @@
 # pages/3_Model_Explorer.py
 import streamlit as st
 from src.config.problem_config import PROBLEM_CONFIG
-from src.schemas import DisplayContext
+from src.schemas import (
+    ClassificationPipelineConfig,
+    DisplayContext,
+    RegressionPipelineConfig,
+)
 from ui.components import sidebar, results
 
 st.title("🔬 Model Explorer")
@@ -17,20 +21,37 @@ else:
     config = PROBLEM_CONFIG[problem_type]
 
     # --- 3. Render Sidebar ---
-    model_config = sidebar.render_sidebar(config)
+    model_run_config = sidebar.render_sidebar(config)
 
     # --- 4. Run Logic ---
-    if st.button(f"Train {model_config.model_name}"):
+
+    transform_method = st.session_state.get("target_transform_method", "None")
+
+    if st.button(f"Train {model_run_config.model_name}"):
         data = st.session_state["processed_data"]
         pipeline_function = config["pipeline"]
-        with st.spinner("Training in progress..."):
-            pipeline_result = pipeline_function(
-                data["X_train"],
-                data["X_test"],
-                data["y_train"],
-                data["y_test"],
-                model_config,
+        pipeline_config = None
+
+        base_params = {
+            "X_train": data["X_train"],
+            "X_test": data["X_test"],
+            "y_train": data["y_train"],
+            "y_test": data["y_test"],
+            "model_run_config": model_run_config,
+        }
+
+        if problem_type == "Classification":
+            pipeline_config = ClassificationPipelineConfig(**base_params)
+
+        elif problem_type == "Regression":
+            transform_method = st.session_state.get("target_transform_method", "None")
+            pipeline_config = RegressionPipelineConfig(
+                **base_params,
+                target_transform_method=transform_method,  # Pass the specific arg here
             )
+
+        with st.spinner("Training in progress..."):
+            pipeline_result = pipeline_function(pipeline_config)
 
         # Store the entire result object in session state
         if pipeline_result:
@@ -38,7 +59,7 @@ else:
 
             # Store the result object AND the name of the model that generated it
             st.session_state["last_run_result"] = pipeline_result
-            st.session_state["last_run_model_name"] = model_config.model_name
+            st.session_state["last_run_model_name"] = model_run_config.model_name
         else:
             st.error("Model training failed. Check the terminal for logs.")
             if "last_run_result" in st.session_state:
@@ -49,7 +70,7 @@ else:
     # --- 5. Call the Results Dispatcher ---
     if "last_run_result" in st.session_state:
 
-        if st.session_state.get("last_run_model_name") == model_config.model_name:
+        if st.session_state.get("last_run_model_name") == model_run_config.model_name:
 
             # We gather the necessary raw/intermediate data from session state and
             # package it into our formal DisplayContext schema.
