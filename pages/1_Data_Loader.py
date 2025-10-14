@@ -1,98 +1,92 @@
 # pages/1_Data_Loader.py
 import streamlit as st
 import pandas as pd
+import logging
 
-from src.processing.data_manager import split_data
+from src.analysis.profiler import profile_dataframe
 
-st.title("🖥️ Data Loader")
+logger = logging.getLogger(__name__)
 
-# Check if a problem type has been selected
+st.title("💾 Data Loader")
+st.markdown(
+    "Upload a CSV file to begin your analysis. This is the first step in the workflow."
+)
+
+# --- 1. Check if a problem type has been selected from the Welcome page ---
 if "problem_type" not in st.session_state or st.session_state.problem_type is None:
-    st.warning("Please select a problem type on the Welcome page first.")
-else:
-    st.info(f"Current Problem Type: **{st.session_state.problem_type}**")
+    st.warning("Please select a problem type on the 🏠 Welcome page first.")
+    st.stop()  # Halt execution until a problem type is chosen
 
-    uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+st.info(f"Current Problem Type: **{st.session_state.problem_type}**")
 
-    if uploaded_file is not None:
-        try:
-            # Load the DataFrame once, right here in the UI
-            df = pd.read_csv(uploaded_file)
+# --- 2. File Uploader and Advanced Encoding Options ---
+# List of common encodings to try
+COMMON_ENCODINGS = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
 
-            st.subheader("Automated Data Cleaning")
+uploaded_file = st.file_uploader(
+    "Choose a CSV file",
+    type="csv",
+    help="If you see an error after uploading, your file might have a non-standard encoding.",
+)
 
-            # 1. Handle customerID (or any unique identifier)
-            # Drop unique identifier columns as they cause data leakage.
-            # We identify them as object columns where every value is unique.
-            id_cols = [
-                col
-                for col in df.select_dtypes(include="object").columns
-                if df[col].nunique() == len(df)
-            ]
-            if id_cols:
-                df = df.drop(columns=id_cols)
-                st.success(
-                    f"Removed identifier column(s) to prevent data leakage: `{'`, `'.join(id_cols)}`"
-                )
+with st.expander("Advanced Options"):
+    selected_encoding = st.selectbox("File Encoding:", COMMON_ENCODINGS)
 
-            # 2. Handle TotalCharges (or other numeric-as-object columns)
-            # Convert columns that look numeric but are stored as objects.
-            for col in df.select_dtypes(include="object").columns:
-                if col != st.session_state.get(
-                    "target_column"
-                ):  # Don't convert the target
-                    try:
-                        # Attempt to convert to numeric, coercing errors to NaN
-                        converted_col = pd.to_numeric(df[col], errors="coerce")
-                        # If conversion is successful for a good portion of the data, apply it
-                        if (
-                            converted_col.notna().sum() / len(df) > 0.8
-                        ):  # Heuristic: if >80% are numeric
-                            df[col] = converted_col
-                            st.success(
-                                f"Successfully converted column `{col}` to a numeric type."
-                            )
-                    except Exception:
-                        continue  # Ignore columns that can't be converted
+# --- 3. Intelligent Loading Logic ---
+if uploaded_file is not None:
 
-            st.write("Data Preview (after cleaning):")
-            st.dataframe(df.head())
+    # Store the file in session state to avoid reloading on every rerun
+    st.session_state["uploaded_file"] = uploaded_file
 
-            # Store the full dataframe in session state for EDA page
-            st.session_state["full_df"] = df
+    df = None
+    try:
+        # We use a key for the file uploader to help Streamlit manage state
+        uploaded_file.seek(0)  # Reset file buffer to the beginning
+        logger.info(f"Attempting to read CSV with encoding: {selected_encoding}")
+        df = pd.read_csv(uploaded_file, encoding=selected_encoding)
+        st.success(f"Successfully loaded the file with '{selected_encoding}' encoding.")
 
-            target_column = st.selectbox("Select the target column", df.columns)
-            test_size = st.slider("Select the test set size", 0.1, 0.5, 0.2)
+    except UnicodeDecodeError as e:
+        st.error(
+            f"Error reading file with '{selected_encoding}' encoding. This is common for non-standard files."
+        )
+        st.info(
+            "💡 **Tip:** Try a different encoding from the 'Advanced Options' dropdown, such as 'latin1'."
+        )
+        logger.error(f"UnicodeDecodeError with {selected_encoding}: {e}")
+        st.stop()
 
-            if st.button("Process and Split Data"):
-                # Store the selected target column in the session state
-                st.session_state["target_column"] = target_column
+    except Exception as e:
+        st.error(f"An unexpected error occurred while reading the file: {e}")
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        st.stop()
 
-                with st.spinner("Processing..."):
-                    # Backend function with the DataFrame
-                    X_train, X_test, y_train, y_test = split_data(
-                        df, target_column, test_size
-                    )
+    # --- 4. Store Raw Data and Direct the User ---
+    if df is not None:
+        # Store the raw, unmodified dataframe for the next step
+        st.session_state["raw_df"] = df
 
-                    if X_train is not None:
-                        st.success("Data successfully processed and split!")
+        st.subheader("Data Preview (First 5 Rows)")
+        st.dataframe(df.head())
 
-                        st.session_state["processed_data"] = {
-                            "X_train": X_train,
-                            "X_test": X_test,
-                            "y_train": y_train,
-                            "y_test": y_test,
-                        }
+        st.subheader("Automated Data Profile")
+        with st.spinner("Profiling data..."):
+            insights = profile_dataframe(df)
+            for insight in insights:
+                if insight["type"] == "info":
+                    st.info(insight["text"], icon="ℹ️")
+                elif insight["type"] == "warning":
+                    st.warning(insight["text"], icon="⚠️")
+                elif insight["type"] == "error":
+                    st.error(insight["text"], icon="❗️")
 
-                        st.subheader("Data Split Summary")
-                        st.write(f"**Training Features Shape:** `{X_train.shape}`")
-                        st.write(f"**Testing Features Shape:** `{X_test.shape}`")
-                        st.write(f"**Training Target Shape:** `{y_train.shape}`")
-                        st.write(f"**Testing Target Shape:** `{y_test.shape}`")
-                    else:
-                        st.error(
-                            "Failed to process the data. Check the terminal for logs."
-                        )
+        st.markdown("---")
+        st.success(
+            "✅ Data loaded! Please proceed to the **🛠️ Data Transformer** page to clean, prepare, and split your data for modeling."
+        )
 
-        except Exception as e:
-            st.error(f"An error occurred while reading the CSV file: {e}")
+        # Clear out any old processed data to prevent state conflicts
+        if "processed_data" in st.session_state:
+            del st.session_state["processed_data"]
+        if "full_df" in st.session_state:
+            del st.session_state["full_df"]
