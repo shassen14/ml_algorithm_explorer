@@ -1,163 +1,70 @@
 # ui/components/results_display/classification.py
 import streamlit as st
 import pandas as pd
-from src.schemas import DisplayContext
-from ui.components import (
-    knn_explainer,
-    linear_model_explainer,
-    pros_cons_display,
-)
+from src.schemas import ClassificationPipelineResult, DisplayContext
+from ui.components import linear_model_explainer, knn_explainer
 
 
 def render(context: DisplayContext):
-    """
-    Renders the full results dashboard specifically for CLASSIFICATION problems.
-    """
-    result = context.result
+    """Renders the full results dashboard for a classification model run."""
 
-    tab_titles = [
-        "📈 Performance (What)",
-        "🔍 Diagnosis (Why)",
-        "⚙️ Algorithm Explainers (How)",
-    ]
-    tab1, tab2, tab3 = st.tabs(tab_titles)
+    result = context.result  # The ClassificationPipelineResult object
+    st.header(f"Results for Model: {result.model_name}")
 
-    # ==============================================================================
-    # TAB 1: PERFORMANCE ("WHAT") - The high-level verdict
-    # ==============================================================================
+    tab1, tab2, tab3 = st.tabs(
+        ["📈 Performance (What)", "🔍 Diagnosis (Why)", "⚙️ Algorithm Explainers (How)"]
+    )
+
+    # --- TAB 1: PERFORMANCE ---
     with tab1:
         st.subheader("Model Performance Summary")
+        st.markdown("##### **Summary Metrics**")
+        st.dataframe(pd.DataFrame([result.metrics]))
 
-        metrics = result.metrics
-        if not metrics:
-            st.warning("No metrics were generated for this run.")
-            return  # Exit early if there's nothing to show
-
-        st.write("**Summary Metrics:**")
-        st.dataframe(pd.DataFrame([metrics]))
-
+        st.markdown("##### **Performance Visualizations**")
         col1, col2 = st.columns(2)
         with col1:
             if result.confusion_matrix_fig:
-                st.write("**Confusion Matrix:**")
                 st.pyplot(result.confusion_matrix_fig)
         with col2:
             if result.roc_curve_fig:
-                st.markdown("---")
-                st.write("**Receiver Operating Characteristic (ROC) Curve:**")
                 st.pyplot(result.roc_curve_fig)
 
-        # Detailed, Collapsible Information
-        st.markdown("---")
-        st.markdown("##### **Detailed Reports & Explanations**")
-
-        with st.expander("How to Interpret These Results"):
-            st.markdown(
-                """
-            **Summary Metrics:**
-            - **Accuracy:** The overall percentage of correct predictions. Can be misleading on imbalanced datasets.
-            - **Precision:** Of the predictions made for the positive class, how many were correct? (Measures "false alarms").
-            - **Recall:** Of all the actual positive instances, how many did the model find? (Measures "missed cases").
-            - **F1-Score:** The harmonic mean of Precision and Recall, providing a balanced score.
-            - **AUC (Area Under Curve):** A measure of the model's ability to distinguish between classes (1.0 is perfect, 0.5 is a random guess).
-
-            **Confusion Matrix:**
-            - A direct breakdown of the model's predictions: True Positives (TP), True Negatives (TN), False Positives (FP), and False Negatives (FN).
-
-            **ROC Curve:**
-            - Visualizes the trade-off between the True Positive Rate (Recall) and the False Positive Rate. A better model has a curve that bows towards the top-left corner.
-            """
-            )
-
         if result.classification_report:
-            st.write("**Detailed Classification Report:**")
-            st.code(result.classification_report, language=None)
+            with st.expander("View Detailed Classification Report"):
+                st.code(result.classification_report, language=None)
 
-    # ==============================================================================
-    # TAB 2: DIAGNOSIS ("WHY") - Understanding the specific model run
-    # This tab is now the home for our diagnostic plots.
-    # ==============================================================================
+    # --- TAB 2: DIAGNOSIS ---
     with tab2:
         st.subheader("Diagnosing the Trained Model")
 
-        st.markdown("#### **Geometric Analysis**")
+        st.markdown("#### **Geometric & Feature Analysis**")
         if result.decision_boundary_fig:
-            st.info(
-                "This plot is the ultimate summary of the model. It visualizes how the model has partitioned the data space, projected into 2D using PCA."
-            )
             st.pyplot(result.decision_boundary_fig)
-        else:
-            st.info(
-                "A decision boundary plot could not be generated for this model or data."
-            )
-        st.markdown("---")
 
-        st.markdown("#### **Feature Analysis**")
-        st.info(
-            "These plots explain *which features* the model found important for making its predictions on your data."
-        )
-
-        # --- Feature Importance / Coefficient Inspector ---
-        # We can use columns for a cleaner layout
-        col1, col2 = st.columns(2)
-        with col1:
-            # For Tree-Based models
-            if result.feature_importance_fig:
-                st.write("**Feature Importance (MDI):**")
-                st.pyplot(result.feature_importance_fig)
-
-            # For Linear Models
-            if result.coefficient_plot_fig:
-                st.write("**Coefficient Inspector:**")
-                st.pyplot(result.coefficient_plot_fig)
-        with col2:
-            # Placeholder for future, more advanced plots like Permutation Importance or SHAP
-            st.write("")  # Empty column for now, can be filled later
-            st.write("")
+        # Display the most relevant feature plot
+        if result.coefficient_plot_fig:
+            st.markdown("##### **Coefficient Inspector**")
+            st.pyplot(result.coefficient_plot_fig)
+        elif result.feature_importance_fig:
+            st.markdown("##### **Feature Importance**")
+            st.pyplot(result.feature_importance_fig)
 
         st.markdown("---")
-
         st.markdown("#### **Error Analysis**")
-        st.info(
-            "Here we can inspect the specific data points where the model was most confident, yet incorrect."
-        )
-
-        # --- Error Analysis Tables ---
-        fp_df = result.false_positives_df
-        fn_df = result.false_negatives_df
-
-        if fp_df is not None and not fp_df.empty:
+        if result.false_positives_df is not None:
             with st.expander("Show Top 5 Worst False Positives"):
-                st.write(
-                    "Examples the model incorrectly predicted as 'Positive' with high confidence."
-                )
-                st.dataframe(fp_df)
-
-        if fn_df is not None and not fn_df.empty:
+                st.dataframe(result.false_positives_df)
+        if result.false_negatives_df is not None:
             with st.expander("Show Top 5 Worst False Negatives"):
-                st.write(
-                    "'Positive' examples the model missed, predicting them as 'Negative' with high confidence."
-                )
-                st.dataframe(fn_df)
+                st.dataframe(result.false_negatives_df)
 
-    # ==============================================================================
-    # TAB 3: ALGORITHM EXPLAINERS ("HOW") - The educational deep dive
-    # This tab is now clean and focused only on teaching the algorithm.
-    # ==============================================================================
+    # --- TAB 3: ALGORITHM EXPLAINERS ---
     with tab3:
         st.subheader(f"How a {result.model_name} Works")
         if result.model_name == "Logistic Regression":
-            if context.full_df is not None and context.target_column is not None:
+            if context.full_df is not None:
                 linear_model_explainer.render(context.full_df, context.target_column)
-
         elif result.model_name == "K-Nearest Neighbors":
-            if context.processed_data is not None:
+            if context.processed_data:
                 knn_explainer.render(context)
-
-        elif result.model_name in ["Random Forest", "XGBoost"]:
-            st.info(
-                "(Placeholder) The Decision Tree visualizer and from-scratch code will be displayed here."
-            )
-
-        # General pros and cons
-        pros_cons_display.render(result.model_name)

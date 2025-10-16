@@ -1,10 +1,7 @@
 # src/pipelines/classification_pipeline.py
 from typing import Optional
+from sklearn.preprocessing import LabelEncoder
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -12,195 +9,144 @@ from sklearn.metrics import (
     f1_score,
     classification_report,
 )
-import logging
 
-from src.analysis import model_analyzer
+from .base_pipeline import BasePipeline
+from src.schemas import ClassificationPipelineConfig, ClassificationPipelineResult
 from src.evaluation import common_plots
 from src.evaluation.specific_plots import classification as classification_plots
-from src.schemas import (
-    ClassificationPipelineConfig,
-    ClassificationPipelineResult,
-)
-
-logger = logging.getLogger(__name__)
+from src.analysis import model_analyzer
 
 
-def run_classification_pipeline(
-    config: ClassificationPipelineConfig,
-) -> Optional[ClassificationPipelineResult]:
-    try:
-        X_train = config.X_train
-        X_test = config.X_test
-        y_train = config.y_train
-        y_test = config.y_test
-        model_config = config.model_run_config
+class ClassificationPipeline(BasePipeline):
+    """Concrete pipeline for executing classification tasks."""
 
-        # The config now directly provides the class and its string name
-        model_class = model_config.model_class
-        model_name = model_config.model_name
-        hyperparameters = model_config.hyperparameters
+    def __init__(self, config: ClassificationPipelineConfig):
+        # Must call the parent constructor to build the pipeline
+        super().__init__(config)
 
-        logger.info(f"Starting classification pipeline for model: {model_name}")
-        logger.info(f"Hyperparameters: {hyperparameters}")
+        # Initialize classification-specific state
+        self.le = LabelEncoder()
+        self.y_train_encoded: pd.Series = None
+        self.y_test_encoded: pd.Series = None
+        self.class_names: list = []
 
+    @property
+    def model_step_name(self) -> str:
+        """Implements the abstract property from BasePipeline."""
+        return "classifier"
+
+    def _fit(self):
+        """
+        Overrides the base _fit method to handle label encoding of the target variable
+        before fitting the scikit-learn pipeline.
+        """
+        y_train = self.config.y_train
+
+        # Encode string labels to integers, which is required by some models (like XGBoost)
+        # and is good practice for all.
         if y_train.dtype == "object" or y_train.dtype.name == "category":
-            logger.info("Target variable is categorical. Applying LabelEncoder.")
-            le = LabelEncoder()
-
-            # Fit on the training data and transform both train and test data
-            # LabelEncoder returns NumPy arrays
-            y_train_encoded_np = le.fit_transform(y_train)
-            y_test_encoded_np = le.transform(y_test)
-
-            # Convert NumPy arrays back to Pandas Series
-            # We preserve the original index, which is good practice.
-            y_train_encoded = pd.Series(
-                y_train_encoded_np, index=y_train.index, name=y_train.name
+            self.y_train_encoded = pd.Series(
+                self.le.fit_transform(y_train), index=y_train.index
             )
-            y_test_encoded = pd.Series(
-                y_test_encoded_np, index=y_test.index, name=y_test.name
+            self.y_test_encoded = pd.Series(
+                self.le.transform(self.config.y_test), index=self.config.y_test.index
             )
+            self.class_names = list(self.le.classes_)
+        else:  # If target is already numeric
+            self.y_train_encoded = y_train
+            self.y_test_encoded = self.config.y_test
+            self.class_names = sorted(y_train.unique().tolist())
 
-            # Keep track of the original labels for plotting and metrics
-            class_names = le.classes_
-            logger.info(
-                f"LabelEncoder mapping: {dict(zip(le.classes_, le.transform(le.classes_)))}"
-            )
-        else:
-            # If it's already numerical, just use it as is
-            logger.info("Target variable is already numerical.")
-            y_train_encoded = y_train
-            y_test_encoded = y_test
-            class_names = sorted(y_train.unique())
+        # The actual fitting happens on the encoded target data
+        self.pipeline.fit(self.config.X_train, self.y_train_encoded)
 
-        # Add random_state for reproducibility where applicable
-        if model_name in ["Logistic Regression", "Random Forest", "XGBoost"]:
-            hyperparameters["random_state"] = 42
+    def _generate_results(self) -> Optional[ClassificationPipelineResult]:
+        """
+        Implements the abstract method to generate a rich set of classification-specific
+        results, including metrics, plots, and diagnostics.
+        """
+        y_pred = self.pipeline.predict(self.config.X_test)
+        y_pred_proba = self.pipeline.predict_proba(self.config.X_test)
 
-        model = model_class(**hyperparameters)
-
-        numerical_features = X_train.select_dtypes(include=["int64", "float64"]).columns
-        categorical_features = X_train.select_dtypes(include=["object"]).columns
-
-        logger.info(f"Identified {len(numerical_features)} numerical features.")
-        logger.info(f"Identified {len(categorical_features)} categorical features.")
-
-        # Pipeline for numerical features: impute with median, then scale.
-        numeric_transformer = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]
-        )
-        # Pipeline for categorical features: impute with most frequent, then one-hot encode.
-        categorical_transformer = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="most_frequent")),
-                ("onehot", OneHotEncoder(handle_unknown="ignore")),
-            ]
-        )
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("num", numeric_transformer, numerical_features),
-                ("cat", categorical_transformer, categorical_features),
-            ]
-        )
-
-        main_pipeline = Pipeline(
-            steps=[("preprocessor", preprocessor), ("classifier", model)]
-        )
-
-        logger.info("Training the pipeline...")
-        main_pipeline.fit(X_train, y_train_encoded)
-        logger.info("Training complete.")
-
-        y_pred_encoded = main_pipeline.predict(X_test)
-        y_pred_proba = main_pipeline.predict_proba(X_test)
-
-        # Initialize results dictionary
+        # --- Calculate Metrics ---
         metrics = {}
-
-        # Calculate metrics
-        if len(class_names) == 2:
-            pos_label = 1
-            logger.info(
-                f"Binary classification detected. Using '{pos_label}' as the positive label."
-            )
-
+        if len(self.class_names) == 2:  # Binary classification
+            pos_label = 1  # The encoded positive class
             metrics = {
-                "Accuracy": accuracy_score(y_test_encoded, y_pred_encoded),
+                "Accuracy": accuracy_score(self.y_test_encoded, y_pred),
                 "Precision": precision_score(
-                    y_test_encoded, y_pred_encoded, pos_label=pos_label, zero_division=0
+                    self.y_test_encoded, y_pred, pos_label=pos_label, zero_division=0
                 ),
                 "Recall": recall_score(
-                    y_test_encoded, y_pred_encoded, pos_label=pos_label, zero_division=0
+                    self.y_test_encoded, y_pred, pos_label=pos_label, zero_division=0
                 ),
                 "F1-Score": f1_score(
-                    y_test_encoded, y_pred_encoded, pos_label=pos_label, zero_division=0
+                    self.y_test_encoded, y_pred, pos_label=pos_label, zero_division=0
                 ),
             }
-        else:
-            logger.info(
-                "Multi-class classification detected. Calculating weighted-average metrics."
-            )
+        else:  # Multiclass classification
             metrics = {
-                "Accuracy": accuracy_score(y_test_encoded, y_pred_encoded),
+                "Accuracy": accuracy_score(self.y_test_encoded, y_pred),
                 "F1-Score (Weighted)": f1_score(
-                    y_test_encoded, y_pred_encoded, average="weighted", zero_division=0
+                    self.y_test_encoded, y_pred, average="weighted", zero_division=0
+                ),
+                "Precision (Weighted)": precision_score(
+                    self.y_test_encoded, y_pred, average="weighted", zero_division=0
+                ),
+                "Recall (Weighted)": recall_score(
+                    self.y_test_encoded, y_pred, average="weighted", zero_division=0
                 ),
             }
-
-        # Get report
         report_str = classification_report(
-            y_test_encoded,
-            y_pred_encoded,
-            target_names=[str(c) for c in class_names],
+            self.y_test_encoded,
+            y_pred,
+            target_names=[str(c) for c in self.class_names],
             zero_division=0,
         )
 
-        # Plotting
-        coefficient_plot_fig = common_plots.plot_linear_coefficients(
-            main_pipeline, class_names
+        # --- Generate Plots ---
+        cm_fig = classification_plots.plot_confusion_matrix(
+            self.y_test_encoded, y_pred, class_names=self.class_names
         )
-        feature_importance_fig = common_plots.plot_feature_importance(
-            main_pipeline, main_pipeline.named_steps["preprocessor"]
+        roc_fig = classification_plots.plot_roc_curve(
+            self.y_test_encoded, y_pred_proba, class_names=self.class_names
         )
-        confusion_matrix_fig = classification_plots.plot_confusion_matrix(
-            y_test_encoded, y_pred_encoded, class_names=class_names
-        )
-        roc_curve_fig = classification_plots.plot_roc_curve(
-            y_test_encoded, y_pred_proba, class_names
-        )
-        decision_boundary_fig = classification_plots.plot_decision_boundary(
-            X_train, y_train_encoded, class_names, main_pipeline
+        db_fig = classification_plots.plot_decision_boundary(
+            self.config.X_train, self.y_train_encoded, self.class_names, self.pipeline
         )
 
-        # Diagnostics
+        # Common plots (can be None if not applicable to the model)
+        fi_fig = common_plots.plot_feature_importance(
+            self.pipeline,
+            self.pipeline.named_steps["preprocessor"],
+            self.model_step_name,
+        )
+        coef_fig = common_plots.plot_linear_coefficients(
+            self.pipeline, self.model_step_name, self.class_names
+        )
+
+        # --- Generate Diagnostics ---
         fp_df, fn_df = model_analyzer.get_error_analysis(
-            X_test, y_test, y_pred_encoded, y_pred_proba, class_names
+            self.config.X_test,
+            self.config.y_test,
+            y_pred,
+            y_pred_proba,
+            self.class_names,
         )
 
-        logger.info(f"Calculated metrics: {metrics}")
-
+        # --- Package into the Pydantic Result Object ---
         return ClassificationPipelineResult(
-            pipeline=main_pipeline,
-            model_name=model_name,
-            feature_importance_fig=feature_importance_fig,
+            pipeline=self.pipeline,
+            model_name=self.config.model_run_config.model_name,
             metrics=metrics,
-            class_names=class_names,
-            y_train_encoded=y_train_encoded,
-            confusion_matrix_fig=confusion_matrix_fig,
-            roc_curve_fig=roc_curve_fig,
+            class_names=self.class_names,
+            y_train_encoded=self.y_train_encoded,
             classification_report=report_str,
-            decision_boundary_fig=decision_boundary_fig,
-            coefficient_plot_fig=coefficient_plot_fig,
+            confusion_matrix_fig=cm_fig,
+            roc_curve_fig=roc_fig,
+            decision_boundary_fig=db_fig,
+            feature_importance_fig=fi_fig,
+            coefficient_plot_fig=coef_fig,
             false_positives_df=fp_df,
             false_negatives_df=fn_df,
         )
-
-    except Exception as e:
-        logger.error(
-            f"An error occurred in the classification pipeline for model {model_config.model_name}: {e}",
-            exc_info=True,
-        )
-        return None, None

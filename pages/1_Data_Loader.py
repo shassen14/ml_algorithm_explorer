@@ -35,6 +35,11 @@ with st.expander("Advanced Options"):
 # --- 3. Intelligent Loading Logic ---
 if uploaded_file is not None:
 
+    if st.session_state.get("uploaded_file_name") != uploaded_file.name:
+        if "last_run_result" in st.session_state:
+            del st.session_state["last_run_result"]
+        st.session_state["uploaded_file_name"] = uploaded_file.name
+
     # Store the file in session state to avoid reloading on every rerun
     st.session_state["uploaded_file"] = uploaded_file
 

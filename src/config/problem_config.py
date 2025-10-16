@@ -13,15 +13,18 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from xgboost import XGBClassifier, XGBRegressor
 
+from src.schemas import ClassificationPipelineConfig, RegressionPipelineConfig
+
 # ==============================================================================
 # 2. DEFINE THE MASTER CONFIGURATION DICTIONARY
 # ==============================================================================
 
 PROBLEM_CONFIG = {
     "Classification": {
+        "pipeline_class": classification_pipeline.ClassificationPipeline,
+        "config_class": ClassificationPipelineConfig,
         "display_name": "Classification",
         "icon": "🎯",
-        "pipeline": classification_pipeline.run_classification_pipeline,
         "metrics_display_name": "Classification Metrics",
         "supported_plots": ["Confusion Matrix", "ROC Curve", "Feature Importance"],
         "models": {
@@ -113,9 +116,10 @@ PROBLEM_CONFIG = {
         },
     },
     "Regression": {
+        "pipeline_class": regression_pipeline.RegressionPipeline,
+        "config_class": RegressionPipelineConfig,
         "display_name": "Regression",
         "icon": "📈",
-        "pipeline": regression_pipeline.run_regression_pipeline,
         "metrics_display_name": "Regression Metrics",
         "supported_plots": ["Actual vs. Predicted", "Feature Importance"],
         "models": {

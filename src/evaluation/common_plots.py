@@ -1,4 +1,5 @@
 # src/evaluation/common_plots.py
+from typing import List, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,9 +12,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def plot_feature_importance(pipeline, preprocessor):
+def plot_feature_importance(pipeline, preprocessor, model_step_name: str):
     """Generates and returns the feature importance plot for tree-based models."""
-    model = pipeline.named_steps["classifier"]
+    model = pipeline.named_steps[model_step_name]
 
     if not hasattr(model, "feature_importances_"):
         return None  # Not a tree-based model
@@ -40,157 +41,78 @@ def plot_feature_importance(pipeline, preprocessor):
     return fig
 
 
-def plot_decision_boundary(X_train, y_train_encoded, class_names, original_pipeline):
+def plot_linear_coefficients(
+    pipeline, model_step_name: str, class_names: Optional[List[str]] = None
+):
     """
-    Generates a 2D decision boundary plot using a dedicated visualization pipeline.
-    """
-    try:
-        # --- Step 1: Create a dedicated pipeline for visualization ---
-        # This pipeline includes the original preprocessor, PCA, and the trained classifier.
-        preprocessor = original_pipeline.named_steps["preprocessor"]
-        classifier = original_pipeline.named_steps["classifier"]
-
-        vis_pipeline = Pipeline(
-            [
-                ("preprocessor", preprocessor),
-                ("pca", PCA(n_components=2, random_state=42)),
-                ("classifier", classifier),  # Use the already-trained classifier
-            ]
-        )
-
-        # We don't need to refit the classifier, but we need to fit the PCA.
-        # So we fit the preprocessor and PCA on the training data.
-        X_train_processed = preprocessor.fit_transform(X_train)
-        vis_pipeline.named_steps["pca"].fit(X_train_processed)
-        X_pca = vis_pipeline.named_steps["pca"].transform(X_train_processed)
-
-        # --- Step 2: Create a meshgrid in the 2D PCA space ---
-        x_min, x_max = X_pca[:, 0].min() - 1, X_pca[:, 0].max() + 1
-        y_min, y_max = X_pca[:, 1].min() - 1, X_pca[:, 1].max() + 1
-        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.1), np.arange(y_min, y_max, 0.1))
-
-        # --- Step 3: Predict on the meshgrid ---
-        # We need a classifier that can predict from the 2D PCA space.
-        # To do this, we'll train a new classifier just on the 2D data.
-        # This is a standard approach for visualization.
-        vis_classifier = type(classifier)(**classifier.get_params())
-        vis_classifier.fit(X_pca, y_train_encoded)
-        Z = vis_classifier.predict(np.c_[xx.ravel(), yy.ravel()])
-        Z = Z.reshape(xx.shape)
-
-        # --- Step 4: Plot the boundary and the data points ---
-        fig, ax = plt.subplots(figsize=(10, 8))
-
-        unique_labels = np.unique(y_train_encoded)
-        colors = plt.cm.get_cmap("viridis", len(unique_labels))
-
-        ax.contourf(xx, yy, Z, alpha=0.4, cmap=colors)
-
-        scatter = ax.scatter(
-            X_pca[:, 0],
-            X_pca[:, 1],
-            c=y_train_encoded,
-            alpha=0.8,
-            edgecolor="k",
-            cmap=colors,
-        )
-
-        legend_elements = [
-            mpatches.Patch(color=colors(i), label=class_names[i]) for i in unique_labels
-        ]
-        ax.legend(handles=legend_elements, title="Classes")
-
-        ax.set_title("Decision Boundary (visualized in 2D PCA space)")
-        ax.set_xlabel("Principal Component 1")
-        ax.set_ylabel("Principal Component 2")
-        return fig
-
-    except Exception as e:
-        logger.error(f"Could not generate decision boundary plot: {e}", exc_info=True)
-        return None  # Return None on failure
-
-
-def plot_linear_coefficients(pipeline, class_names=None):
-    """
-    Extracts and plots the coefficients from a trained linear model pipeline.
-
-    Handles both binary and multiclass classification coefficients.
+    Extracts and plots coefficients from a linear model.
+    This function is now generic and handles Regression, Binary Classification,
+    and Multiclass Classification by inspecting the model's .coef_ attribute.
     """
     try:
-
-        # Step 1: Extract the trained classifier and the preprocessor
-        classifier = pipeline.named_steps["classifier"]
+        model = pipeline.named_steps[model_step_name]
         preprocessor = pipeline.named_steps["preprocessor"]
 
-        # Check if the model has the 'coef_' attribute
-        if not hasattr(classifier, "coef_"):
-            return None  # Not a linear model with coefficients
+        if not hasattr(model, "coef_"):
+            return None
 
-        # Step 2: Get the feature names from the preprocessor
-        try:
-            feature_names = preprocessor.get_feature_names_out()
-        except Exception:
-            # Fallback for older scikit-learn or complex transformers
-            return None  # Cannot reliably get feature names
+        feature_names = preprocessor.get_feature_names_out()
+        coefficients = model.coef_
 
-        # Step 3: Create a DataFrame of coefficients and plot
-        if classifier.coef_.shape[0] == 1:
-            # --- Binary Classification Case ---
-            coef_df = pd.DataFrame(
-                {"feature": feature_names, "coefficient": classifier.coef_[0]}
-            )
+        # Case 1: Regression (coef_ is 1D array) or Binary Classification (coef_ is 2D with 1 row)
+        if len(coefficients.shape) == 1 or coefficients.shape[0] == 1:
+            # Flatten to a 1D array to handle both cases uniformly
+            coef_series = pd.Series(coefficients.flatten(), index=feature_names)
 
-            # 1. Calculate absolute coefficients to find the most influential features.
-            coef_df["abs_coef"] = coef_df["coefficient"].abs()
+            # Determine the title based on whether it's regression or classification
+            if class_names and len(class_names) == 2:
+                title = f"Top 20 Feature Influences on Predicting '{class_names[1]}'"
+            else:
+                title = "Top 20 Feature Influences on Prediction"
 
-            # 2. Get the top 20 most influential features (largest absolute value).
+            # Find top 20 most influential features by absolute value
             top_n = 20
-            top_features_df = coef_df.nlargest(top_n, "abs_coef")
-
-            # 3. Sort this subset by the actual coefficient value for plotting.
-            # Ascending=True ensures the most negative is first (plotted at bottom)
-            # and most positive is last (plotted at top).
-            plotting_df = top_features_df.sort_values("coefficient", ascending=True)
-
-            title = f"Top {top_n} Feature Influences on Predicting '{class_names[1]}'"
+            top_features = coef_series.abs().nlargest(top_n).index
+            plotting_df = coef_series[top_features].sort_values(ascending=True)
 
             fig, ax = plt.subplots(figsize=(12, 10))
+            colors = ["red" if c < 0 else "blue" for c in plotting_df]
+            ax.barh(plotting_df.index, plotting_df.values, color=colors)
+            ax.axvline(0, color="grey", linewidth=0.8)
 
-            colors = ["red" if c < 0 else "blue" for c in plotting_df["coefficient"]]
-
-            # Plot using the correctly sorted DataFrame
-            ax.barh(plotting_df["feature"], plotting_df["coefficient"], color=colors)
-
+        # Case 2: Multiclass Classification (coef_ is 2D with >1 row)
         else:
-            # --- Multiclass Classification Case (remains the same, but let's ensure it's clean) ---
-            coef_df = pd.DataFrame(
-                classifier.coef_.T, columns=class_names, index=feature_names
-            )
-            coef_df["abs_max_coef"] = coef_df.abs().max(axis=1)
+            if not class_names or len(class_names) != coefficients.shape[0]:
+                raise ValueError(
+                    "For multiclass models, class_names must be provided and match the number of classes."
+                )
 
+            title = "Top 20 Feature Coefficients per Class"
+            coef_df = pd.DataFrame(
+                coefficients.T, columns=class_names, index=feature_names
+            )
+
+            # Find top 20 features based on the maximum absolute coefficient across all classes
+            coef_df["abs_max_coef"] = coef_df.abs().max(axis=1)
             top_n = 20
             top_features_df = coef_df.nlargest(top_n, "abs_max_coef").drop(
                 "abs_max_coef", axis=1
             )
 
-            # Sort by the first class's coefficient for a consistent visual order
+            # Sort for plotting
             plotting_df = top_features_df.sort_values(class_names[0], ascending=True)
 
-            title = f"Top {top_n} Feature Coefficients per Class"
-
             fig, ax = plt.subplots(figsize=(12, 10))
-            plotting_df.plot(
-                kind="barh", ax=ax
-            )  # DataFrame.plot() handles this internally
+            plotting_df.plot(kind="barh", ax=ax)
+            ax.axvline(0, color="grey", linewidth=0.8)
 
-        ax.axvline(0, color="grey", linewidth=0.8)
         ax.set_title(title, fontsize=16)
-        ax.set_xlabel("Coefficient Value (Magnitude of Influence)")
+        ax.set_xlabel("Coefficient Value (Impact on Prediction)")
         ax.set_ylabel("Feature")
         fig.tight_layout()
-
         return fig
 
     except Exception as e:
-        logger.error(f"Could not generate coefficient plot: {e}", exc_info=True)
+        # Use a logger if you have one configured
+        print(f"Could not generate coefficient plot: {e}")
         return None

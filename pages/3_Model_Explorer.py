@@ -1,90 +1,96 @@
-# pages/3_Model_Explorer.py
+# pages/model_explorer.py
 import streamlit as st
 from src.config.problem_config import PROBLEM_CONFIG
-from src.schemas import (
-    ClassificationPipelineConfig,
-    DisplayContext,
-    RegressionPipelineConfig,
-)
+from src.schemas import DisplayContext
 from ui.components import sidebar, results
 
 st.title("🔬 Model Explorer")
 
-# --- 1. State Checks ---
+# --- 1. Prerequisites Check ---
 if "problem_type" not in st.session_state or st.session_state.problem_type is None:
     st.warning("Please select a problem type on the Welcome page first.")
-elif "processed_data" not in st.session_state:
-    st.warning("Please load and process your data on the 'Data Loader' page first.")
-else:
-    # --- 2. Get State & Config ---
-    problem_type = st.session_state["problem_type"]
-    config = PROBLEM_CONFIG[problem_type]
+    st.stop()
+if "processed_data" not in st.session_state:
+    st.warning("Please prepare your data on the 🛠️ Data Preparation page first.")
+    st.stop()
 
-    # --- 3. Render Sidebar ---
-    model_run_config = sidebar.render_sidebar(config)
+# --- Load necessary data from session state ---
+problem_type = st.session_state["problem_type"]
+config = PROBLEM_CONFIG[problem_type]
+data_dict = st.session_state["processed_data"]
 
-    # --- 4. Run Logic ---
+# --- 2. Get the UI Configuration from the Sidebar ---
+# The sidebar component returns a Pydantic `ModelConfig` object.
+# Let's rename the variable for clarity as we discussed.
+model_run_config = sidebar.render_sidebar(config)
 
-    transform_method = st.session_state.get("target_transform_method", "None")
+# --- 3. The Main Action: Training the Model ---
+if st.button(f"Train {model_run_config.model_name}"):
 
-    if st.button(f"Train {model_run_config.model_name}"):
-        data = st.session_state["processed_data"]
-        pipeline_function = config["pipeline"]
+    # a. Get the correct pipeline and config CLASSES from our problem_config.
+    pipeline_class = config["pipeline_class"]
+    config_class = config["config_class"]
+
+    # b. Prepare the dictionary of parameters needed to build the config object.
+    base_params = {
+        "X_train": data_dict["X_train"],
+        "X_test": data_dict["X_test"],
+        "y_train": data_dict["y_train"],
+        "y_test": data_dict["y_test"],
+        "model_run_config": model_run_config,
+    }
+
+    # c. Instantiate the specific pipeline CONFIGURATION object.
+    #    This is where we would add regression-specific args in the future.
+    if problem_type == "Classification":
+        pipeline_config = config_class(**base_params)
+    elif problem_type == "Regression":
+        # Example for the future:
+        transform_method = st.session_state.get("target_transform_method", "None")
+        pipeline_config = config_class(
+            **base_params, target_transform_method=transform_method
+        )
+    else:
         pipeline_config = None
+        st.error(f"Pipeline for '{problem_type}' not yet implemented.")
 
-        base_params = {
-            "X_train": data["X_train"],
-            "X_test": data["X_test"],
-            "y_train": data["y_train"],
-            "y_test": data["y_test"],
-            "model_run_config": model_run_config,
-        }
-
-        if problem_type == "Classification":
-            pipeline_config = ClassificationPipelineConfig(**base_params)
-
-        elif problem_type == "Regression":
-            transform_method = st.session_state.get("target_transform_method", "None")
-            pipeline_config = RegressionPipelineConfig(
-                **base_params,
-                target_transform_method=transform_method,  # Pass the specific arg here
-            )
-
-        with st.spinner("Training in progress..."):
-            pipeline_result = pipeline_function(pipeline_config)
-
-        # Store the entire result object in session state
-        if pipeline_result:
-            st.success("Model training complete!")
-
-            # Store the result object AND the name of the model that generated it
-            st.session_state["last_run_result"] = pipeline_result
-            st.session_state["last_run_model_name"] = model_run_config.model_name
-        else:
-            st.error("Model training failed. Check the terminal for logs.")
-            if "last_run_result" in st.session_state:
-                del st.session_state["last_run_result"]
-            if "last_run_model_name" in st.session_state:
-                del st.session_state["last_run_model_name"]
-
-    # --- 5. Call the Results Dispatcher ---
-    if "last_run_result" in st.session_state:
-
-        if st.session_state.get("last_run_model_name") == model_run_config.model_name:
-
-            # We gather the necessary raw/intermediate data from session state and
-            # package it into our formal DisplayContext schema.
+    # d. If the config was built successfully, instantiate and run the pipeline.
+    if pipeline_config:
+        with st.spinner("Training model and generating results..."):
             try:
-                display_context = DisplayContext(
-                    result=st.session_state["last_run_result"],
-                    full_df=st.session_state.get("full_df"),
-                    target_column=st.session_state.get("target_column"),
-                    processed_data=st.session_state.get("processed_data"),
-                )
-                results.display_results(display_context)
+                # i. Create an INSTANCE of the pipeline class (e.g., ClassificationPipeline)
+                pipeline_instance = pipeline_class(pipeline_config)
+
+                # ii. Call the .run() method to execute the entire process
+                pipeline_result = pipeline_instance.run()
+
+                # iii. Save the final result to session state
+                st.success("Model training complete!")
+                st.session_state["last_run_result"] = pipeline_result
 
             except Exception as e:
-                st.error(f"Failed to create display context: {e}")
-                del st.session_state["last_run_result"]
-                del st.session_state["last_run_model_name"]
-                st.rerun()
+                st.error(f"An error occurred during the pipeline run: {e}")
+                if "last_run_result" in st.session_state:
+                    del st.session_state["last_run_result"]
+
+# --- 4. Displaying the Results ---
+if "last_run_result" in st.session_state:
+
+    # We add a check to ensure the displayed result matches the selected model
+    # to prevent showing stale results, as we discussed.
+    last_run_model_name = st.session_state.last_run_result.model_name
+    if last_run_model_name == model_run_config.model_name:
+        st.markdown("---")
+
+        try:
+            display_context = DisplayContext(
+                result=st.session_state["last_run_result"],
+                full_df=st.session_state.get("full_df"),
+                target_column=st.session_state.get("target_column"),
+                processed_data=st.session_state.get("processed_data"),
+            )
+
+            results.display_results(display_context)
+
+        except Exception as e:
+            st.error(f"An error occurred while preparing the display: {e}")

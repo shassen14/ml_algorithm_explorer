@@ -18,6 +18,6 @@ def display_results(context: DisplayContext):
     if isinstance(context.result, ClassificationPipelineResult):
         classification.render(context)
     elif isinstance(context.result, RegressionPipelineResult):
-        regression.render(context.result)
+        regression.render(context)
     else:
         st.error(f"Unknown result type: {type(context.result)}")

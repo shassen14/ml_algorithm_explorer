@@ -1,6 +1,21 @@
 # pages/0_Welcome.py
 import streamlit as st
 
+
+def clear_old_results():
+    """Callback function to clear stale results from session state."""
+    keys_to_delete = [
+        "last_run_result",
+        "processed_data",
+        "full_df",
+        "recipe",
+        "raw_df",
+    ]
+    for key in keys_to_delete:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Interactive ML Explorer",
@@ -37,6 +52,7 @@ with col1:
     if st.button(
         "**Classification**",
         use_container_width=True,
+        on_click=clear_old_results,
         help="Predict a category or label (e.g., Yes/No, Cat/Dog).",
     ):
         st.session_state.problem_type = "Classification"
@@ -45,6 +61,7 @@ with col2:
     if st.button(
         "**Regression**",
         use_container_width=True,
+        on_click=clear_old_results,
         help="Predict a continuous number (e.g., price, temperature).",
     ):
         st.session_state.problem_type = "Regression"
@@ -56,6 +73,7 @@ with col3:
     if st.button(
         "**Clustering**",
         use_container_width=True,
+        on_click=clear_old_results,
         help="Discover natural groups or segments in your data.",
     ):
         st.session_state.problem_type = "Clustering"
@@ -64,6 +82,7 @@ with col4:
     if st.button(
         "**Dimensionality Reduction**",
         use_container_width=True,
+        on_click=clear_old_results,
         help="Simplify your data by reducing the number of features for visualization or modeling.",
     ):
         st.session_state.problem_type = "Dimensionality Reduction"
@@ -72,6 +91,7 @@ with col5:
     if st.button(
         "**Anomaly Detection**",
         use_container_width=True,
+        on_click=clear_old_results,
         help="Identify rare or unusual data points that deviate from the norm.",
     ):
         st.session_state.problem_type = "Anomaly Detection"
