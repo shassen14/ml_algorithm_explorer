@@ -4,8 +4,9 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 
 # Import our custom schemas, the backend transformer engine, and the UI components
+from src.processing.preparation_manager import DataPreparationManager
 from src.schemas import TransformationRecipe
-from src.processing.recipe_executor import apply_recipe, generate_python_script
+from src.processing.recipe_executor import generate_python_script
 from ui.components import preparation_ui
 
 # --- 1. Page Configuration and Initial Setup ---
@@ -29,27 +30,23 @@ if "raw_df" not in st.session_state:
 if "recipe" not in st.session_state:
     st.session_state.recipe = TransformationRecipe()
 
-# --- 3. The Core Non-Destructive Transformation Engine ---
-# On every script rerun, apply the current recipe to the original raw data.
-# This makes the entire workflow non-destructive and fully editable.
-try:
-    working_df = apply_recipe(st.session_state.raw_df, st.session_state.recipe)
-except ValueError as e:
-    st.error(f"Error applying recipe: {e}")
-    # If the recipe fails, show the last known good dataframe to avoid a blank screen.
-    working_df = st.session_state.get("working_df", st.session_state.raw_df)
 
-# Store the latest successfully transformed dataframe for display and use.
-st.session_state.working_df = working_df
+# --- 3. The Core Non-Destructive Transformation Engine ---
+# Create the manager instance on every rerun, injecting the persistent recipe
+# object from st.session_state.
+manager = DataPreparationManager(
+    raw_df=st.session_state.raw_df,
+    recipe=st.session_state.recipe,
+)
+working_df = manager.get_working_df()
 
 
 # --- 4. Render Layout and UI Components ---
 
 # The sidebar component handles column selection and recipe management.
 # It returns the name of the column currently selected by the user.
-selected_column = preparation_ui.render_sidebar(
-    working_df, st.session_state.recipe.steps
-)
+selected_column = preparation_ui.render_sidebar(manager, working_df)
+
 
 # The main area is split into the data preview and the transformation workbenches.
 st.subheader("Current Data Preview")
@@ -57,10 +54,10 @@ st.dataframe(working_df.head(100))
 st.write(f"**Current Shape:** {working_df.shape}")
 
 # The column inspector component renders analysis and actions for the selected column.
-preparation_ui.render_column_inspector(working_df, selected_column)
+preparation_ui.render_column_inspector(manager, working_df, selected_column)
 
 # The feature workbench component renders tools for creating new columns.
-preparation_ui.render_feature_workbench(working_df)
+preparation_ui.render_feature_workbench(manager, working_df)
 
 
 # --- 5. Finalization, Splitting, and Exporting ---

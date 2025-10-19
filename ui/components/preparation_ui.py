@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import json
+from src.processing.preparation_manager import DataPreparationManager
 from src.schemas import (
     MapKeywordsParams,
     TransformationStep,
@@ -15,6 +16,7 @@ from src.schemas import (
     MathOperationParams,
     ExtractTextParams,
     BooleanFlagParams,
+    FillNaParams,
 )
 from typing import List
 
@@ -22,7 +24,7 @@ from typing import List
 # ==============================================================================
 # 1. SIDEBAR COMPONENT
 # ==============================================================================
-def render_sidebar(df: pd.DataFrame, recipe: List[TransformationStep]) -> str:
+def render_sidebar(manager: DataPreparationManager, df: pd.DataFrame) -> str:
     """
     Renders the sidebar for column selection and recipe management.
 
@@ -44,38 +46,37 @@ def render_sidebar(df: pd.DataFrame, recipe: List[TransformationStep]) -> str:
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### 2. Transformation Recipe")
 
-    if not recipe:
-        st.sidebar.info(
-            "Your recipe is empty. Add transformations from the main panel."
-        )
+    if not manager.recipe.steps:
+        st.sidebar.info("Your recipe is empty.")
     else:
-        for i, step in reversed(list(enumerate(recipe))):
-            col1, col2, col3 = st.sidebar.columns([5, 1, 1])
+        # Loop in reverse for stable delete/move operations
+        for i, step in reversed(list(enumerate(manager.recipe.steps))):
+            col1, col2, col3, col4 = st.sidebar.columns([4, 1, 1, 1])
             col1.text(f"{i+1}. {step.step_type.replace('_', ' ').title()}")
-
-            # Callback functions for state modification
-            def move_step(idx, direction):
-                if direction == "up" and idx > 0:
-                    recipe.insert(idx - 1, recipe.pop(idx))
-                elif direction == "down" and idx < len(recipe) - 1:
-                    recipe.insert(idx + 1, recipe.pop(idx))
-
-            def delete_step(idx):
-                recipe.pop(idx)
-
             col2.button(
                 "🔼",
                 key=f"up_{i}",
                 help="Move step up",
-                on_click=move_step,
+                on_click=manager.move_step,
                 args=(i, "up"),
             )
             col3.button(
-                "🗑️", key=f"del_{i}", help="Delete step", on_click=delete_step, args=(i,)
+                "🔽",
+                key=f"down_{i}",
+                help="Move step down",
+                on_click=manager.move_step,
+                args=(i, "down"),
+            )
+            col4.button(
+                "🗑️",
+                key=f"del_{i}",
+                help="Delete step",
+                on_click=manager.remove_step,
+                args=(i,),
             )
 
-    if st.sidebar.button("Reset Recipe", type="secondary"):
-        st.session_state.recipe.steps = []
+    if st.sidebar.button("Reset Recipe"):
+        manager.reset_recipe()
         st.rerun()
 
     return selected_column
@@ -84,7 +85,9 @@ def render_sidebar(df: pd.DataFrame, recipe: List[TransformationStep]) -> str:
 # ==============================================================================
 # 2. MAIN PANEL COMPONENTS
 # ==============================================================================
-def render_column_inspector(df: pd.DataFrame, selected_column: str):
+def render_column_inspector(
+    manager: DataPreparationManager, df: pd.DataFrame, selected_column: str
+):
     """
     Renders the main inspection panel for a single selected column,
     including univariate analysis and available in-place transformations.
@@ -92,6 +95,11 @@ def render_column_inspector(df: pd.DataFrame, selected_column: str):
     st.header(f"Inspecting Column: `{selected_column}`")
 
     col_data = df[selected_column]
+
+    # --- Display Missing Value Info ---
+    missing_count = col_data.isnull().sum()
+    missing_percent = (missing_count / len(df)) * 100
+    st.metric("Missing Values", f"{missing_count} ({missing_percent:.2f}%)")
 
     # --- Univariate Analysis ---
     st.subheader("Analysis & Statistics")
@@ -116,9 +124,8 @@ def render_column_inspector(df: pd.DataFrame, selected_column: str):
                 params = RenameColumnParams(
                     source_column=selected_column, new_name=new_name
                 )
-                st.session_state.recipe.steps.append(
-                    TransformationStep(step_type="rename_column", params=params)
-                )
+                step = TransformationStep(step_type="rename_column", params=params)
+                manager.add_step(step)
                 st.rerun()
 
     if pd.api.types.is_object_dtype(col_data):
@@ -162,15 +169,43 @@ def render_column_inspector(df: pd.DataFrame, selected_column: str):
                         mapping_dict=mapping_dict,
                         default_value=default_val or None,
                     )
-                    st.session_state.recipe.steps.append(
-                        TransformationStep(step_type="map_values", params=params)
-                    )
+                    step = TransformationStep(step_type="map_values", params=params)
+                    manager.add_step(step)
                     st.rerun()
                 except json.JSONDecodeError:
                     st.error("Invalid JSON format in mapping dictionary.")
+    with st.expander("Fill Missing Values (Impute)"):
+        with st.form(f"fillna_{selected_column}"):
+            st.info("Choose a strategy to fill the missing values in this column.")
+
+            # Allow different strategies based on column type
+            if pd.api.types.is_numeric_dtype(col_data):
+                strategy = st.selectbox(
+                    "Imputation Strategy:", ["Specific Value", "Mean", "Median", "Mode"]
+                )
+            else:
+                strategy = st.selectbox(
+                    "Imputation Strategy:", ["Specific Value", "Mode"]
+                )
+
+            fill_val = None
+            if strategy == "Specific Value":
+                fill_val = st.text_input("Value to use for filling", value="0")
+
+            if st.form_submit_button("Add to Recipe"):
+                params = FillNaParams(
+                    column=selected_column,
+                    strategy=strategy.lower().replace(
+                        " ", "_"
+                    ),  # e.g., "Specific Value" -> "specific_value"
+                    fill_value=fill_val,
+                )
+                step = TransformationStep(step_type="fill_na", params=params)
+                manager.add_step(step)
+                st.rerun()
 
 
-def render_feature_workbench(df: pd.DataFrame):
+def render_feature_workbench(manager: DataPreparationManager, df: pd.DataFrame):
     """
     Renders the feature engineering workbench for creating new columns
     from one or more existing columns (multivariate transformations).
@@ -211,11 +246,10 @@ def render_feature_workbench(df: pd.DataFrame):
                         new_column_name=new_col_name,
                         case_sensitive=case_sensitive,
                     )
-                    st.session_state.recipe.steps.append(
-                        TransformationStep(
-                            step_type="create_boolean_flag", params=params
-                        )
+                    step = TransformationStep(
+                        step_type="create_boolean_flag", params=params
                     )
+                    manager.add_step(step)
                     st.rerun()
 
         with st.form("math_op_form"):
@@ -242,9 +276,8 @@ def render_feature_workbench(df: pd.DataFrame):
                     params = MathOperationParams(
                         new_column_name=new_col_name, formula=formula
                     )
-                    st.session_state.recipe.steps.append(
-                        TransformationStep(step_type="math_operation", params=params)
-                    )
+                    step = TransformationStep(step_type="math_operation", params=params)
+                    manager.add_step(step)
                     st.rerun()
 
         with st.form("regex_extract_form"):
@@ -262,11 +295,10 @@ def render_feature_workbench(df: pd.DataFrame):
                         new_column_name=new_col_name_re,
                         regex_pattern=regex_pattern,
                     )
-                    st.session_state.recipe.steps.append(
-                        TransformationStep(
-                            step_type="extract_text_regex", params=params
-                        )
+                    step = TransformationStep(
+                        step_type="extract_text_regex", params=params
                     )
+                    manager.add_step(step)
                     st.rerun()
         with st.form("map_keywords_form"):
             st.markdown("###### Create Column by Mapping Keywords")
@@ -303,11 +335,10 @@ def render_feature_workbench(df: pd.DataFrame):
                             keyword_mapping=mapping_dict,
                             default_value=default_val,
                         )
-                        st.session_state.recipe.steps.append(
-                            TransformationStep(
-                                step_type="map_by_keywords", params=params
-                            )
+                        step = TransformationStep(
+                            step_type="map_by_keywords", params=params
                         )
+                        manager.add_step(step)
                         st.rerun()
                 except Exception as e:
                     st.error(
@@ -320,7 +351,6 @@ def render_feature_workbench(df: pd.DataFrame):
             if st.form_submit_button("Add to Recipe", type="secondary"):
                 if cols_to_drop:
                     params = DropColumnsParams(columns=cols_to_drop)
-                    st.session_state.recipe.steps.append(
-                        TransformationStep(step_type="drop_columns", params=params)
-                    )
+                    step = TransformationStep(step_type="drop_columns", params=params)
+                    manager.add_step(step)
                     st.rerun()

@@ -105,7 +105,31 @@ def apply_recipe(raw_df: pd.DataFrame, recipe: TransformationRecipe) -> pd.DataF
                     )
 
                 df[params.new_column_name] = new_col
+            elif step.step_type == "fill_na":
+                params = step.params
+                column = params.column
 
+                if params.strategy == "specific_value":
+                    fill_val = params.fill_value
+                    # Try to convert fill_value to the column's type if possible
+                    try:
+                        if pd.api.types.is_numeric_dtype(df[column]):
+                            fill_val = float(fill_val)
+                    except (ValueError, TypeError):
+                        pass  # Keep as string if conversion fails
+                    df[column] = df[column].fillna(fill_val)
+
+                elif params.strategy == "mean":
+                    if pd.api.types.is_numeric_dtype(df[column]):
+                        df[column] = df[column].fillna(df[column].mean())
+
+                elif params.strategy == "median":
+                    if pd.api.types.is_numeric_dtype(df[column]):
+                        df[column] = df[column].fillna(df[column].median())
+
+                elif params.strategy == "mode":
+                    # Mode can be multi-valued, so we take the first one.
+                    df[column] = df[column].fillna(df[column].mode()[0])
         except Exception as e:
             raise ValueError(
                 f"Recipe failed at Step {i+1} ('{step_type}'). Details: {e}"

@@ -55,16 +55,23 @@ class MapKeywordsParams(BaseModel):
     default_value: str
 
 
+class FillNaParams(BaseModel):
+    column: str
+    strategy: str  # e.g., 'specific_value', 'mean', 'median', 'mode'
+    fill_value: Optional[Any] = None  # Only used if strategy is 'specific_value'
+
+
 # This Union type lists all possible transformation parameter schemas
 TransformationParams = Union[
     DropColumnsParams,
     RenameColumnParams,
     ConvertTypeParams,
     MapValuesParams,
+    MapKeywordsParams,
     ExtractTextParams,
     MathOperationParams,
     BooleanFlagParams,
-    MapKeywordsParams,
+    FillNaParams,
 ]
 
 
